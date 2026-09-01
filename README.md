@@ -1,6 +1,6 @@
 # CodeScan
 
-CodeScan is a production-ready FastAPI application for handwritten code recognition, language detection, preprocessing, and dependency extraction.
+CodeScan is a FastAPI application for handwritten code recognition, language detection, preprocessing, and dependency extraction.
 
 ## Features
 
@@ -88,9 +88,3 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8001
 http://localhost:8001/
 ```
 
-## Production notes
-
-- Keep secrets in a local environment file or secret manager.
-- Do not commit the actual .env file.
-- This folder is intentionally limited to the runtime application and dependencies required to run it.
-"# CodeScan-IDE" 
