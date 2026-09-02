@@ -1,4 +1,4 @@
-const { useEffect, useMemo, useState } = React;
+const { useEffect, useMemo, useRef, useState } = React;
 
 function StatusPill({ message, kind }) {
   if (!message) return null;
@@ -11,6 +11,11 @@ function App() {
   const [uploadMetadata, setUploadMetadata] = useState(null);
   const [uploadPreview, setUploadPreview] = useState('');
   const [uploadStatus, setUploadStatus] = useState({ message: '', kind: '' });
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState({ message: '', kind: '' });
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const videoRef = useRef(null);
+  const cameraStreamRef = useRef(null);
 
   const [contextText, setContextText] = useState('');
   const [recognitionResult, setRecognitionResult] = useState(null);
@@ -36,6 +41,12 @@ function App() {
     checkHealth();
   }, []);
 
+  useEffect(() => () => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+    }
+  }, []);
+
   const currentThemeLabel = theme === 'dark' ? '☀️' : '🌙';
 
   const metaSummary = useMemo(() => {
@@ -46,6 +57,70 @@ function App() {
       `Size: ${uploadMetadata.processed_size[0]} x ${uploadMetadata.processed_size[1]} px`,
     ];
   }, [uploadMetadata]);
+
+  const stopCamera = () => {
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach((track) => track.stop());
+      cameraStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraOpen(false);
+  };
+
+  const startCamera = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraStatus({ message: '❌ Camera access is not supported by this browser.', kind: 'error' });
+      return;
+    }
+
+    setCameraBusy(true);
+    setCameraStatus({ message: '⏳ Requesting camera access...', kind: 'loading' });
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      setCameraOpen(true);
+      setCameraStatus({ message: '✅ Camera ready. Position the code and capture a frame.', kind: 'success' });
+      window.requestAnimationFrame(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      });
+    } catch (error) {
+      setCameraStatus({ message: `❌ Unable to access camera: ${error.message}`, kind: 'error' });
+    } finally {
+      setCameraBusy(false);
+    }
+  };
+
+  const captureCameraImage = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraStatus({ message: '❌ Camera is still loading. Try again in a moment.', kind: 'error' });
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setCameraStatus({ message: '❌ Could not capture an image from the camera.', kind: 'error' });
+        return;
+      }
+      setSourceFile(new File([blob], 'camera-capture.png', { type: 'image/png' }));
+      setUploadMetadata(null);
+      setUploadPreview('');
+      setCameraStatus({ message: '✅ Image captured. You can preprocess or recognize it now.', kind: 'success' });
+      stopCamera();
+    }, 'image/png');
+  };
 
   const handleUpload = async () => {
     if (!sourceFile) {
@@ -440,6 +515,24 @@ function App() {
               React.createElement('span', { className: 'dropzone-hint' }, '.png, .jpg, .webp, .heic, .pdf'),
             ),
           ),
+          React.createElement(
+            'div',
+            { className: 'camera-controls' },
+            cameraOpen
+              ? React.createElement(
+                  React.Fragment,
+                  null,
+                  React.createElement('video', { ref: videoRef, className: 'camera-preview', autoPlay: true, playsInline: true, muted: true }),
+                  React.createElement(
+                    'div',
+                    { className: 'button-row' },
+                    React.createElement('button', { className: 'primary-button', type: 'button', onClick: captureCameraImage }, '📷 Capture image'),
+                    React.createElement('button', { className: 'secondary-button', type: 'button', onClick: stopCamera }, '✕ Close camera'),
+                  ),
+                )
+              : React.createElement('button', { className: 'secondary-button camera-button', type: 'button', onClick: startCamera, disabled: cameraBusy }, cameraBusy ? '⏳ Starting camera...' : '📷 Use camera'),
+          ),
+          StatusPill(cameraStatus),
           React.createElement(
             'div',
             { className: 'button-row' },

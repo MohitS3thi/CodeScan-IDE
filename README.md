@@ -9,6 +9,7 @@ CodeScan is a FastAPI application for handwritten code recognition, language det
 - Programming language detection
 - Dependency extraction for common libraries and frameworks
 - Browser-based interface for image and code analysis
+- Live camera capture for scanning code directly from a device camera
 - Batch processing support
 
 ## Runtime structure
