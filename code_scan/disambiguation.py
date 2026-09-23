@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any, Sequence
 
 # Standard confusion pairs in handwriting
 STANDARD_CONFUSION_PAIRS = [
@@ -77,7 +77,7 @@ class HandwritingDisambiguator:
         text: str,
         context_language: str = "python",
         context_clues: dict[str, str] | None = None,
-    ) -> dict[str, any]:  # type: ignore
+    ) -> dict[str, Any]:
         """Disambiguate text based on context and confusion pairs.
 
         Args:
@@ -188,35 +188,48 @@ class HandwritingDisambiguator:
         return min(1.0, max(0.0, score))
 
     def _score_python_context(self, text: str, position: int, candidate: str) -> float:
-        """Score candidate in Python context."""
-        # Extract word around position
-        word_match = self._extract_word_at_position(text, position)
-        if not word_match:
+        """Score candidate in Python context.
+
+        The key fix: we must check whether the *hypothetical* word formed by
+        substituting ``candidate`` at ``position`` matches a keyword, not the
+        original (already-misread) word.
+        """
+        original_word = self._extract_word_at_position(text, position)
+        if not original_word:
             return 0.0
 
-        word = word_match
+        # Find the word's start index by walking backward from position
+        word_start = position
+        while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] == "_"):
+            word_start -= 1
 
-        # Check if forms a valid Python keyword
-        if word in PYTHON_KEYWORDS:
-            # This helps disambiguate keywords like 'if', 'for', etc.
-            if candidate in {"I", "l", "1", "O"}:  # Common confusions
-                return 0.7  # Slightly prefer letters in keywords
-            return 0.3
+        offset = position - word_start
+        if 0 <= offset < len(original_word):
+            hypothetical = original_word[:offset] + candidate + original_word[offset + 1:]
+        else:
+            hypothetical = original_word
 
-        # Check for common patterns
-        if "(" in word or ")" in word:
-            # Function calls typically use 0 (zero) not O (letter)
+        # Check if substitution yields a valid Python keyword
+        if hypothetical in PYTHON_KEYWORDS:
+            return 0.85  # Strong boost — candidate makes a real keyword
+
+        # Original word already was a keyword (candidate keeps it valid)
+        if original_word in PYTHON_KEYWORDS:
+            return 0.4
+
+        # Function calls typically use 0 (zero) not O (letter)
+        if "(" in text[position:position + 3]:
             if candidate == "0":
                 return 0.6
             elif candidate == "O":
                 return 0.2
 
-        return 0.1
+        return 0.05
 
     def _score_javascript_context(self, text: str, position: int, candidate: str) -> float:
-        """Score candidate in JavaScript context."""
-        word = self._extract_word_at_position(text, position)
-        if not word:
+        """Score candidate in JavaScript context — tests candidate substitution."""
+        original_word = self._extract_word_at_position(text, position)
+        if not original_word:
             return 0.0
 
         js_keywords = {
@@ -226,12 +239,23 @@ class HandwritingDisambiguator:
             "catch", "finally", "new", "delete", "typeof", "instanceof",
         }
 
-        if word in js_keywords:
-            if candidate in {"I", "l", "1", "O"}:
-                return 0.65
-            return 0.25
+        word_start = position
+        while word_start > 0 and (text[word_start - 1].isalnum() or text[word_start - 1] == "_"):
+            word_start -= 1
 
-        return 0.1
+        offset = position - word_start
+        if 0 <= offset < len(original_word):
+            hypothetical = original_word[:offset] + candidate + original_word[offset + 1:]
+        else:
+            hypothetical = original_word
+
+        if hypothetical in js_keywords:
+            return 0.85
+
+        if original_word in js_keywords:
+            return 0.4
+
+        return 0.05
 
     def _score_library_patterns(self, text: str, candidate: str) -> float:
         """Score based on library import patterns."""
@@ -317,7 +341,7 @@ class HandwritingDisambiguator:
 class IndentationAnalyzer:
     """Analyze indentation patterns in handwritten code."""
 
-    def detect_indentation_style(self, text: str) -> dict[str, any]:  # type: ignore
+    def detect_indentation_style(self, text: str) -> dict[str, Any]:
         """Detect indentation style (spaces vs tabs vs visual offsets).
 
         Args:
